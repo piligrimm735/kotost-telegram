@@ -2,3 +2,4 @@ python-telegram-bot
 requests
 Pillow
 python-dotenv
+huggingface_hub
