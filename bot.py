@@ -8,7 +8,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 # 🔧 НАСТРОЙКИ - ЗАМЕНИТЬ ТОЛЬКО ЭТУ СТРОКУ!
 # ==================================================
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-PASTA_S_KOTOSTYU = "kotost"  # название папки с фото
+PASTA_S_KOTOSTYU = "reference"  # название папки с фото
 # ==================================================
 
 # Включаем логирование
