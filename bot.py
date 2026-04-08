@@ -7,60 +7,54 @@ from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# Загружаем переменные окружения из файла .env (если есть)
+# Загружаем переменные из .env (если файл существует)
 load_dotenv()
 
-# ==================================================
-# Токены и настройки - берутся из окружения
-# ==================================================
+# ============================================
+# ТОКЕНЫ: бери из окружения или впиши напрямую
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 HF_TOKEN = os.getenv("HF_TOKEN")
 
+# Если не находит в окружении — можно временно вписать (но потом убери!)
+# BOT_TOKEN = "твой_токен_от_botfather"
+# HF_TOKEN = "hf_твой_токен_от_huggingface"
+# ============================================
+
 if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN не задан в переменных окружения")
+    raise ValueError("BOT_TOKEN не задан")
 if not HF_TOKEN:
-    raise ValueError("HF_TOKEN не задан в переменных окружения")
+    raise ValueError("HF_TOKEN не задан")
 
-# Модель на Hugging Face, которая поддерживает img2img (сохраняет персонажа)
-MODEL_ID = "stabilityai/stable-diffusion-2-1"
+# НОВЫЙ РАБОЧИЙ URL (без ошибки 410)
+API_URL = "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell"
 
-# Путь к эталонной картинке Котости (лежит в папке reference)
+# Папка с эталонной картинкой (создай папку reference и положи туда kotost.png)
 REFERENCE_PATH = os.path.join(os.getcwd(), "reference", "kotost.png")
-# ==================================================
 
 logging.basicConfig(level=logging.INFO)
 
-def get_reference_image_b64():
-    """Читает эталонную картинку и возвращает base64"""
+def get_reference_base64():
     if not os.path.exists(REFERENCE_PATH):
         return None
     with open(REFERENCE_PATH, "rb") as f:
         return base64.b64encode(f.read()).decode('utf-8')
 
 def generate_kotost(user_prompt: str):
-    """
-    Отправляет запрос в Hugging Face API с текстом + эталоном.
-    Возвращает байты картинки или (None, ошибка)
-    """
-    ref_b64 = get_reference_image_b64()
+    ref_b64 = get_reference_base64()
     if not ref_b64:
-        return None, "❌ Нет эталонной картинки Котости. Положите файл reference/kotost.png"
+        return None, "❌ Нет эталонной картинки. Положите reference/kotost.png"
 
-    # Промпт, усиливающий узнаваемость персонажа
     full_prompt = (
         f"anthropomorphic fluffy gray cat with long droopy ears, standing on two legs, "
-        f"cartoon style, {user_prompt}, high quality, detailed, no text, no watermark"
+        f"cartoon style, {user_prompt}, high quality, detailed"
     )
 
-    API_URL = f"https://api-inference.huggingface.co/models/{MODEL_ID}"
     headers = {"Authorization": f"Bearer {HF_TOKEN}"}
-    
-    # Для img2img передаём эталон как init_image
     payload = {
         "inputs": full_prompt,
         "parameters": {
             "init_image": ref_b64,
-            "strength": 0.75,      # 0.7-0.8 – меняем фон/позу, сохраняем лицо
+            "strength": 0.75,
             "num_inference_steps": 30,
             "guidance_scale": 7.5,
             "width": 768,
@@ -79,14 +73,12 @@ def generate_kotost(user_prompt: str):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🐱 **Генератор Котости**\n\n"
-        "Просто опишите, что должна делать Котость.\n"
-        "Например:\n"
+        "🐱 **Генератор Котости (по эталону)**\n\n"
+        "Просто напиши, где или как должен быть Котость:\n"
         "• котость на пляже с мухомором\n"
         "• котость в космосе\n"
-        "• котость-программист за ноутбуком\n\n"
-        "Нейросеть нарисует нового Котость в этой ситуации.\n"
-        "Обычно 20–40 секунд."
+        "• котость-программист\n\n"
+        "Нейросеть сохранит внешность эталона из папки reference/"
     )
 
 async def handle_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -96,7 +88,7 @@ async def handle_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.chat.send_action(action="upload_photo")
     status_msg = await update.message.reply_text(
-        f"🎨 Генерирую Котость по запросу:\n«{prompt}»\n⏳ Пожалуйста, подождите..."
+        f"🎨 Генерирую: «{prompt}»\n⏳ Обычно 20-40 секунд..."
     )
 
     img_bytes, error = generate_kotost(prompt)
@@ -109,18 +101,13 @@ async def handle_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status_msg.delete()
     else:
         await status_msg.edit_text(
-            f"❌ Не удалось сгенерировать :(\nОшибка: {error}\n\n"
-            "Попробуйте другой запрос или позже."
+            f"❌ Ошибка: {error}\n\nПопробуй другой запрос или позже."
         )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Просто напишите любое описание.\n"
-        "Я отправлю сгенерированную картинку с Котостью.\n\n"
-        "Примеры:\n"
-        "котость на пляже\n"
-        "котость в лесу с грибами\n"
-        "котость с пиццей"
+        "Просто напиши текст, например:\n"
+        "котость на пляже\nкотость в лесу\nкотость с пиццей"
     )
 
 def main():
