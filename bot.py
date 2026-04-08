@@ -11,54 +11,53 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 load_dotenv()
 
 # ============================================
-# ТОКЕНЫ: бери из окружения или впиши напрямую
+# ТОКЕНЫ И НАСТРОЙКИ
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 HF_TOKEN = os.getenv("HF_TOKEN")
 
-# Если не находит в окружении — можно временно вписать (но потом убери!)
-# BOT_TOKEN = "твой_токен_от_botfather"
-# HF_TOKEN = "hf_твой_токен_от_huggingface"
-# ============================================
-
+# Проверяем, что оба токена заданы
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN не задан")
 if not HF_TOKEN:
     raise ValueError("HF_TOKEN не задан")
 
-# НОВЫЙ РАБОЧИЙ URL (без ошибки 410)
-API_URL = "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell"
+# !!! ИСПРАВЛЕННЫЙ URL: используем специальную модель для редактирования изображений !!!
+API_URL = "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-Kontext-dev"
 
-# Папка с эталонной картинкой (создай папку reference и положи туда kotost.png)
+# Папка с эталонной картинкой
 REFERENCE_PATH = os.path.join(os.getcwd(), "reference", "kotost.png")
+# ============================================
 
 logging.basicConfig(level=logging.INFO)
 
 def get_reference_base64():
+    """Читает эталонную картинку и возвращает base64"""
     if not os.path.exists(REFERENCE_PATH):
         return None
     with open(REFERENCE_PATH, "rb") as f:
         return base64.b64encode(f.read()).decode('utf-8')
 
 def generate_kotost(user_prompt: str):
+    """
+    Генерирует изображение на основе эталона и текста.
+    """
     ref_b64 = get_reference_base64()
     if not ref_b64:
-        return None, "❌ Нет эталонной картинки. Положите reference/kotost.png"
+        return None, "❌ Нет эталонной картинки. Положите файл reference/kotost.png"
 
-    full_prompt = (
-        f"anthropomorphic fluffy gray cat with long droopy ears, standing on two legs, "
-        f"cartoon style, {user_prompt}, high quality, detailed"
-    )
+    # Формируем промпт для модели FLUX.1-Kontext-dev
+    # Она ожидает четкую инструкцию, что именно нужно изменить в изображении.
+    full_prompt = f"Transform the given cat into the character Kotost. Make the cat have long droopy ears and stand on two legs, then place this character in the following scene: {user_prompt}. Keep the character's features consistent."
 
     headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+    
+    # Для модели Kontext параметр "inputs" — это промпт, а "image" — это сама картинка.
     payload = {
         "inputs": full_prompt,
+        "image": ref_b64,
         "parameters": {
-            "init_image": ref_b64,
-            "strength": 0.75,
             "num_inference_steps": 30,
             "guidance_scale": 7.5,
-            "width": 768,
-            "height": 768
         }
     }
 
