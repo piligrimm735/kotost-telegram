@@ -7,7 +7,6 @@ from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# Загружаем переменные из .env (если файл существует)
 load_dotenv()
 
 # ============================================
@@ -15,14 +14,15 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 HF_TOKEN = os.getenv("HF_TOKEN")
 
-# Проверяем, что оба токена заданы
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN не задан")
 if not HF_TOKEN:
     raise ValueError("HF_TOKEN не задан")
 
-# !!! ИСПРАВЛЕННЫЙ URL: используем специальную модель для редактирования изображений !!!
-API_URL = "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-Kontext-dev"
+# !!! ИСПРАВЛЕННЫЙ URL и МОДЕЛЬ !!!
+# Используем официальный Inference Client от Hugging Face
+# Модель FLUX.1-Kontext-dev идеально подходит для редактирования изображений.
+MODEL_ID = "black-forest-labs/FLUX.1-Kontext-dev"
 
 # Папка с эталонной картинкой
 REFERENCE_PATH = os.path.join(os.getcwd(), "reference", "kotost.png")
@@ -30,45 +30,50 @@ REFERENCE_PATH = os.path.join(os.getcwd(), "reference", "kotost.png")
 
 logging.basicConfig(level=logging.INFO)
 
-def get_reference_base64():
-    """Читает эталонную картинку и возвращает base64"""
+def get_reference_bytes():
+    """Читает эталонную картинку и возвращает байты"""
     if not os.path.exists(REFERENCE_PATH):
         return None
     with open(REFERENCE_PATH, "rb") as f:
-        return base64.b64encode(f.read()).decode('utf-8')
+        return f.read()
 
 def generate_kotost(user_prompt: str):
     """
-    Генерирует изображение на основе эталона и текста.
+    Генерирует изображение, используя Hugging Face Inference API (официальный клиент).
     """
-    ref_b64 = get_reference_base64()
-    if not ref_b64:
+    image_bytes = get_reference_bytes()
+    if not image_bytes:
         return None, "❌ Нет эталонной картинки. Положите файл reference/kotost.png"
 
-    # Формируем промпт для модели FLUX.1-Kontext-dev
-    # Она ожидает четкую инструкцию, что именно нужно изменить в изображении.
+    # Формируем четкую инструкцию для модели
     full_prompt = f"Transform the given cat into the character Kotost. Make the cat have long droopy ears and stand on two legs, then place this character in the following scene: {user_prompt}. Keep the character's features consistent."
 
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+    # Импортируем официальный клиент Hugging Face
+    from huggingface_hub import InferenceClient
     
-    # Для модели Kontext параметр "inputs" — это промпт, а "image" — это сама картинка.
-    payload = {
-        "inputs": full_prompt,
-        "image": ref_b64,
-        "parameters": {
-            "num_inference_steps": 30,
-            "guidance_scale": 7.5,
-        }
-    }
-
     try:
-        response = requests.post(API_URL, headers=headers, json=payload, timeout=90)
-        if response.status_code == 200:
-            return response.content, None
-        else:
-            return None, f"Ошибка API: {response.status_code} - {response.text[:200]}"
+        # Создаем клиент с нашим токеном
+        client = InferenceClient(token=HF_TOKEN)
+        
+        # Вызываем метод image_to_image с правильными параметрами
+        # Параметр provider="fal-ai" указывает на использование одного из Inference Providers
+        output_image = client.image_to_image(
+            image=image_bytes,
+            prompt=full_prompt,
+            model=MODEL_ID,
+            provider="fal-ai"  # Используем провайдера для ускорения
+        )
+        
+        # Сохраняем результат в BytesIO
+        img_byte_arr = io.BytesIO()
+        output_image.save(img_byte_arr, format='PNG')
+        return img_byte_arr.getvalue(), None
+        
     except Exception as e:
         return None, str(e)
+
+# --- ОСТАЛЬНЫЕ ФУНКЦИИ (start, handle_prompt, help_command, main) ОСТАЮТСЯ БЕЗ ИЗМЕНЕНИЙ ---
+# ...
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
