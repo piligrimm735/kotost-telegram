@@ -1,5 +1,4 @@
 import os
-import io
 import logging
 import requests
 from dotenv import load_dotenv
@@ -9,7 +8,6 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 load_dotenv()
 
 # ============================================
-# НАСТРОЙКИ
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 
@@ -18,99 +16,81 @@ if not BOT_TOKEN:
 if not DEEPSEEK_API_KEY:
     raise ValueError("DEEPSEEK_API_KEY не задан")
 
-# API DeepSeek для генерации изображений
-DEEPSEEK_API_URL = "https://api.deepseek.com/v1/images/generations"
+DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
 # ============================================
 
 logging.basicConfig(level=logging.INFO)
 
-def generate_kotost(user_prompt: str):
-    """
-    Генерирует картинку Котости через DeepSeek API
-    """
-    # Промпт с описанием Котости
-    full_prompt = (
-        f"Создай изображение персонажа Котость. "
-        f"Котость — это антропоморфный серый пушистый кот с длинными свисающими ушами, "
-        f"стоит на двух лапах. У него грустные/уставшие глаза и лохматая шерсть. "
-        f"Сцена: {user_prompt}. "
-        f"Стиль: мультяшный, качественный, детализированный."
-    )
-
+def ask_deepseek(question: str) -> str:
+    """Отправляет вопрос в DeepSeek и возвращает ответ"""
+    
     headers = {
         "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
         "Content-Type": "application/json"
     }
     
     payload = {
-        "model": "dall-e-3",  # DeepSeek использует совместимый с OpenAI API
-        "prompt": full_prompt,
-        "n": 1,
-        "size": "1024x1024",
-        "quality": "standard"
+        "model": "deepseek-chat",
+        "messages": [
+            {"role": "system", "content": "Ты — дружелюбный помощник. Отвечай кратко и по делу."},
+            {"role": "user", "content": question}
+        ],
+        "temperature": 0.7,
+        "max_tokens": 1000
     }
-
+    
     try:
-        response = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, timeout=90)
+        response = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, timeout=30)
         
         if response.status_code == 200:
             data = response.json()
-            image_url = data['data'][0]['url']
-            # Скачиваем картинку по URL
-            img_response = requests.get(image_url, timeout=30)
-            return img_response.content, None
+            return data['choices'][0]['message']['content']
         else:
-            return None, f"Ошибка API: {response.status_code} - {response.text[:200]}"
+            return f"❌ Ошибка API: {response.status_code}"
     except Exception as e:
-        return None, str(e)
+        return f"❌ Ошибка: {str(e)}"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🐱 **Генератор Котости через DeepSeek**\n\n"
-        "Просто опиши, где и что должна делать Котость:\n"
-        "• котость на пляже с мухомором\n"
-        "• котость в космосе\n"
-        "• котость-программист за ноутбуком\n\n"
-        "Нейросеть DeepSeek нарисует!"
+        "🤖 **Нейросеть DeepSeek в Telegram!**\n\n"
+        "Просто напиши мне любой вопрос, и я отвечу.\n"
+        "Работаю на нейросети DeepSeek (аналог ChatGPT).\n\n"
+        "Чем могу помочь?"
     )
 
-async def handle_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    prompt = update.message.text.strip()
-    if not prompt:
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_message = update.message.text.strip()
+    if not user_message:
         return
-
-    await update.message.chat.send_action(action="upload_photo")
-    status_msg = await update.message.reply_text(
-        f"🎨 Генерирую Котость через DeepSeek:\n«{prompt}»\n⏳ Обычно 10-20 секунд..."
-    )
-
-    img_bytes, error = generate_kotost(prompt)
-
-    if img_bytes:
-        await update.message.reply_photo(
-            photo=io.BytesIO(img_bytes),
-            caption=f"🐱 Твоя КОТОСТЬ (DeepSeek): «{prompt}»"
-        )
-        await status_msg.delete()
+    
+    # Показываем, что бот печатает
+    await update.message.chat.send_action(action="typing")
+    
+    # Отправляем запрос в DeepSeek
+    answer = ask_deepseek(user_message)
+    
+    # Отправляем ответ (если длинный — разбиваем)
+    if len(answer) > 4000:
+        for i in range(0, len(answer), 4000):
+            await update.message.reply_text(answer[i:i+4000])
     else:
-        await status_msg.edit_text(
-            f"❌ Ошибка: {error}\n\n"
-            "Проверь API ключ DeepSeek или попробуй другой запрос."
-        )
+        await update.message.reply_text(answer)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Просто напиши описание:\n"
-        "котость на пляже\nкотость в лесу\nкотость с пиццей\n\n"
-        "DeepSeek нарисует Котость в этой сцене!"
+        "Просто напиши мне вопрос, например:\n"
+        "• Что такое чёрная дыра?\n"
+        "• Напиши стих про кота\n"
+        "• Как приготовить пиццу?\n\n"
+        "Я отвечу текстом через нейросеть DeepSeek."
     )
 
 def main():
-    print("🤖 Бот-генератор Котости (DeepSeek) запускается...")
+    print("🤖 Нейросеть DeepSeek запускается...")
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_prompt))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     print("✅ Бот запущен, жду сообщений...")
     app.run_polling()
 
