@@ -10,7 +10,6 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 load_dotenv()
 
 # ============================================
-# ТОКЕНЫ И НАСТРОЙКИ
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 HF_TOKEN = os.getenv("HF_TOKEN")
 
@@ -19,61 +18,52 @@ if not BOT_TOKEN:
 if not HF_TOKEN:
     raise ValueError("HF_TOKEN не задан")
 
-# !!! ИСПРАВЛЕННЫЙ URL и МОДЕЛЬ !!!
-# Используем официальный Inference Client от Hugging Face
-# Модель FLUX.1-Kontext-dev идеально подходит для редактирования изображений.
-MODEL_ID = "black-forest-labs/FLUX.1-Kontext-dev"
+# Используем модель, которая поддерживает image-to-image и бесплатна
+MODEL_ID = "stabilityai/stable-diffusion-2-1"
+API_URL = f"https://api-inference.huggingface.co/models/{MODEL_ID}"
 
-# Папка с эталонной картинкой
 REFERENCE_PATH = os.path.join(os.getcwd(), "reference", "kotost.png")
 # ============================================
 
 logging.basicConfig(level=logging.INFO)
 
-def get_reference_bytes():
-    """Читает эталонную картинку и возвращает байты"""
+def get_reference_base64():
     if not os.path.exists(REFERENCE_PATH):
         return None
     with open(REFERENCE_PATH, "rb") as f:
-        return f.read()
+        return base64.b64encode(f.read()).decode('utf-8')
 
 def generate_kotost(user_prompt: str):
-    """
-    Генерирует изображение, используя Hugging Face Inference API (официальный клиент).
-    """
-    image_bytes = get_reference_bytes()
-    if not image_bytes:
+    ref_b64 = get_reference_base64()
+    if not ref_b64:
         return None, "❌ Нет эталонной картинки. Положите файл reference/kotost.png"
 
-    # Формируем четкую инструкцию для модели
-    full_prompt = f"Transform the given cat into the character Kotost. Make the cat have long droopy ears and stand on two legs, then place this character in the following scene: {user_prompt}. Keep the character's features consistent."
+    full_prompt = (
+        f"anthropomorphic fluffy gray cat with long droopy ears, standing on two legs, "
+        f"cartoon style, {user_prompt}, high quality, detailed"
+    )
 
-    # Импортируем официальный клиент Hugging Face
-    from huggingface_hub import InferenceClient
-    
+    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+    payload = {
+        "inputs": full_prompt,
+        "parameters": {
+            "init_image": ref_b64,
+            "strength": 0.75,
+            "num_inference_steps": 30,
+            "guidance_scale": 7.5,
+            "width": 768,
+            "height": 768
+        }
+    }
+
     try:
-        # Создаем клиент с нашим токеном
-        client = InferenceClient(token=HF_TOKEN)
-        
-        # Вызываем метод image_to_image с правильными параметрами
-        # Параметр provider="fal-ai" указывает на использование одного из Inference Providers
-        output_image = client.image_to_image(
-            image=image_bytes,
-            prompt=full_prompt,
-            model=MODEL_ID,
-            provider="fal-ai"  # Используем провайдера для ускорения
-        )
-        
-        # Сохраняем результат в BytesIO
-        img_byte_arr = io.BytesIO()
-        output_image.save(img_byte_arr, format='PNG')
-        return img_byte_arr.getvalue(), None
-        
+        response = requests.post(API_URL, headers=headers, json=payload, timeout=90)
+        if response.status_code == 200:
+            return response.content, None
+        else:
+            return None, f"Ошибка API: {response.status_code} - {response.text[:200]}"
     except Exception as e:
         return None, str(e)
-
-# --- ОСТАЛЬНЫЕ ФУНКЦИИ (start, handle_prompt, help_command, main) ОСТАЮТСЯ БЕЗ ИЗМЕНЕНИЙ ---
-# ...
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
